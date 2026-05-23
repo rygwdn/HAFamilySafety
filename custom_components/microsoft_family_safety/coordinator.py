@@ -26,11 +26,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api_client import FamilySafetyWebAPI, FamilySafetyWebAPIError
 from .auth.addon_client import AddonCookieClient
 from .const import (
-    CONF_APP_USAGE,
     CONF_AUTH_URL,
+    CONF_PER_APP,
     CONF_REFRESH_TOKEN,
     CONF_UPDATE_INTERVAL,
-    DEFAULT_APP_USAGE,
+    DEFAULT_PER_APP,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     ERROR_AUTH_FAILED,
@@ -618,7 +618,7 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.debug("Could not fetch web activity: %s", err)
 
-        if self.entry.options.get(CONF_APP_USAGE, DEFAULT_APP_USAGE):
+        if self.entry.options.get(CONF_PER_APP, DEFAULT_PER_APP):
             try:
                 result["app_usage"] = await self.web_api.get_app_usage(
                     account_id, today_start, today_end

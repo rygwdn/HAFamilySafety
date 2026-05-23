@@ -38,8 +38,7 @@
           "update_interval": "Update interval (seconds)",
           "platforms": "Monitored platforms",
           "auth_url": "Auth addon URL (optional, for Docker standalone)",
-          "app_switches": "Enable per-app block switches",
-          "enable_app_usage": "Enable app usage sensors"
+          "per_app_features": "Enable per-app features (block switches, usage data)"
         },
         "description": "Configure the polling interval, monitored platforms, and feature toggles."
       }

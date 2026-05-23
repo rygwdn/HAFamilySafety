@@ -20,9 +20,9 @@ from .const import (
     ATTR_PLATFORM,
     ATTR_USER_ID,
     AVAILABLE_PLATFORMS,
-    CONF_APP_SWITCHES,
+    CONF_PER_APP,
     CONF_PLATFORMS,
-    DEFAULT_APP_SWITCHES,
+    DEFAULT_PER_APP,
     DEFAULT_PLATFORMS,
     DOMAIN,
 )
@@ -41,7 +41,7 @@ async def async_setup_entry(
 
     entities: list[SwitchEntity] = []
 
-    app_switches_enabled = entry.options.get(CONF_APP_SWITCHES, DEFAULT_APP_SWITCHES)
+    app_switches_enabled = entry.options.get(CONF_PER_APP, DEFAULT_PER_APP)
 
     if coordinator.data:
         for account_id, account_data in coordinator.data.get("accounts", {}).items():

@@ -19,6 +19,7 @@ from .const import (
     SERVICE_BLOCK_APP,
     SERVICE_BLOCK_WEBSITE,
     SERVICE_DENY_REQUEST,
+    SERVICE_GRANT_TIME_OVERRIDE,
     SERVICE_LOCK_PLATFORM,
     SERVICE_REMOVE_APP_TIME_LIMIT,
     SERVICE_REMOVE_WEBSITE,
@@ -137,6 +138,11 @@ SERVICE_LOCK_ACCOUNT_SCHEMA = vol.Schema({
 
 SERVICE_UNLOCK_ACCOUNT_SCHEMA = vol.Schema({
     vol.Required("account_id"): cv.string,
+})
+
+SERVICE_GRANT_TIME_OVERRIDE_SCHEMA = vol.Schema({
+    vol.Required("account_id"): cv.string,
+    vol.Required("minutes"): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
 })
 
 
@@ -365,6 +371,15 @@ def _register_services(hass: HomeAssistant) -> None:
             return
         await coordinator.async_unlock_account(call.data["account_id"])
 
+    async def handle_grant_time_override(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(hass)
+        if coordinator is None:
+            _LOGGER.error("No Family Safety coordinator available")
+            return
+        await coordinator.async_grant_time_override(
+            call.data["account_id"], call.data["minutes"]
+        )
+
     # ── Register all services ────────────────────────────────────────────
 
     hass.services.async_register(
@@ -428,6 +443,10 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_UNLOCK_ACCOUNT, handle_unlock_account,
         schema=SERVICE_UNLOCK_ACCOUNT_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_GRANT_TIME_OVERRIDE, handle_grant_time_override,
+        schema=SERVICE_GRANT_TIME_OVERRIDE_SCHEMA,
     )
 
 

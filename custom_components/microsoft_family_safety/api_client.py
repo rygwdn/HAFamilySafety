@@ -416,6 +416,46 @@ class FamilySafetyWebAPI:
             "GET", f"/v1/devices/{child_id}"
         )
 
+    async def get_screentime_schedule(
+        self, child_id: str, platform: str = "Windows"
+    ) -> dict | None:
+        """Get screen time schedule via mobile API (no browser needed)."""
+        return await self._request(
+            "GET",
+            f"/v4/devicelimits/schedules/{child_id}",
+            extra_headers={"Plat-Info": platform},
+        )
+
+    async def get_web_activity(
+        self, child_id: str, begin_time: str, end_time: str
+    ) -> dict | None:
+        """Get web browsing activity report (visited/blocked sites)."""
+        return await self._request(
+            "GET",
+            f"/v1/ActivityReport/webActivity/{child_id}",
+            params={"beginTime": begin_time, "endTime": end_time, "culture": "en-us"},
+        )
+
+    async def get_app_usage(
+        self, child_id: str, begin_time: str, end_time: str
+    ) -> dict | None:
+        """Get per-app usage statistics."""
+        return await self._request(
+            "GET",
+            f"/v4/ActivityReport/appUsage/{child_id}",
+            params={"beginTime": begin_time, "endTime": end_time, "culture": "en-us"},
+        )
+
+    async def get_device_screentime_usage(
+        self, child_id: str, begin_time: str, end_time: str
+    ) -> dict | None:
+        """Get per-device screen time usage details."""
+        return await self._request(
+            "GET",
+            f"/v4/ActivityReport/deviceScreenTimeUsage/{child_id}",
+            params={"beginTime": begin_time, "endTime": end_time, "culture": "en-us"},
+        )
+
     # ──────────────────────────────────────────────────────────────────────
     # Screen Time Controls (mobile API — WRITE)
     # ──────────────────────────────────────────────────────────────────────
@@ -625,6 +665,28 @@ class FamilySafetyWebAPI:
             "PATCH",
             f"/v1/ContentRestrictions/{child_id}",
             json_data={"acquisitionPolicy": policy},
+        )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Device Overrides (mobile API — grant extra time)
+    # ──────────────────────────────────────────────────────────────────────
+
+    async def create_device_override(
+        self, child_id: str, minutes: int, target: str = "All"
+    ) -> dict | None:
+        """Grant a temporary screen time extension (extra minutes)."""
+        valid_until = (datetime.now() + timedelta(minutes=minutes)).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z"
+        )
+        return await self._request(
+            "POST",
+            f"/v4/devicelimits/{child_id}/overrides",
+            json_data={
+                "overrideType": "Temporary",
+                "validUntil": valid_until,
+                "target": target,
+                "culture": "en-us",
+            },
         )
 
     # ──────────────────────────────────────────────────────────────────────

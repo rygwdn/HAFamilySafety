@@ -18,10 +18,12 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import (
     AVAILABLE_PLATFORMS,
     CONF_AUTH_URL,
+    CONF_CONTROLS,
     CONF_PLATFORMS,
     CONF_REDIRECT_URL,
     CONF_REFRESH_TOKEN,
     CONF_UPDATE_INTERVAL,
+    DEFAULT_CONTROLS,
     DEFAULT_PLATFORMS,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
@@ -224,6 +226,12 @@ class FamilySafetyOptionsFlow(config_entries.OptionsFlow):
                         CONF_AUTH_URL,
                         default=self._config_entry.data.get(CONF_AUTH_URL, ""),
                     ): str,
+                    vol.Optional(
+                        CONF_CONTROLS,
+                        default=self._config_entry.options.get(
+                            CONF_CONTROLS, DEFAULT_CONTROLS
+                        ),
+                    ): bool,
                 }
             ),
         )

@@ -37,9 +37,10 @@
         "data": {
           "update_interval": "Update interval (seconds)",
           "platforms": "Monitored platforms",
-          "auth_url": "Auth addon URL (optional, for Docker standalone)"
+          "auth_url": "Auth addon URL (optional, for Docker standalone)",
+          "enable_controls": "Enable schedule & app controls"
         },
-        "description": "Configure the polling interval, monitored platforms, and auth addon URL."
+        "description": "Configure the polling interval, monitored platforms, and feature toggles."
       }
     }
   },

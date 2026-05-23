@@ -32,6 +32,8 @@ from .const import (
     ATTR_SURNAME,
     ATTR_TODAY_TIME_USED,
     ATTR_USER_ID,
+    CONF_CONTROLS,
+    DEFAULT_CONTROLS,
     DOMAIN,
 )
 from .coordinator import FamilySafetyDataUpdateCoordinator
@@ -73,7 +75,6 @@ def _create_account_sensors(
         FamilySafetyWebFilterSensor(coordinator, entry, account_id),
         FamilySafetyScreenTimePolicySensor(coordinator, entry, account_id),
         FamilySafetyWebActivitySensor(coordinator, entry, account_id),
-        FamilySafetyAppUsageSensor(coordinator, entry, account_id),
     ]
 
     if account_data.get("account_balance") is not None:
@@ -227,22 +228,32 @@ class FamilySafetyScreenTimeSensor(FamilySafetyAccountSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional attributes."""
+        """Return additional attributes including per-app usage breakdown."""
         account_data = self._get_account_data()
         if not account_data:
             return {}
 
-        # Value is already in minutes from coordinator, convert to seconds for formatting
         total_minutes = account_data.get("today_screentime_usage", 0)
         total_seconds = total_minutes * 60
 
-        return {
+        attrs: dict[str, Any] = {
             ATTR_USER_ID: account_data.get(ATTR_USER_ID),
             ATTR_AVERAGE_SCREENTIME: account_data.get("average_screentime_usage", 0),
             "state_class": "total",
             "date": datetime.now().date().isoformat(),
             **_format_duration_attributes(total_seconds),
         }
+
+        if self._entry.options.get(CONF_CONTROLS, DEFAULT_CONTROLS):
+            apps = [
+                {"name": app["app_name"], "minutes": app.get("usage_minutes", 0)}
+                for app in account_data.get("applications", [])
+                if app.get("usage_minutes", 0) > 0
+            ]
+            apps.sort(key=lambda x: x["minutes"], reverse=True)
+            attrs["apps"] = apps
+
+        return attrs
 
 
 class FamilySafetyAccountInfoSensor(FamilySafetyAccountSensor):
@@ -707,83 +718,3 @@ class FamilySafetyWebActivitySensor(FamilySafetyAccountSensor):
         }
 
 
-class FamilySafetyAppUsageSensor(FamilySafetyAccountSensor):
-    """Sensor for today's per-app usage statistics."""
-
-    _attr_icon = "mdi:chart-bar"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
-
-    def __init__(
-        self,
-        coordinator: FamilySafetyDataUpdateCoordinator,
-        entry: ConfigEntry,
-        account_id: str,
-    ) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, entry, account_id)
-        self._attr_unique_id = f"{entry.entry_id}_{account_id}_app_usage_detail"
-        self._attr_name = f"{self._get_account_name()} App Usage"
-
-    @property
-    def native_value(self) -> int | None:
-        """Return total minutes across all apps today."""
-        account_data = self._get_account_data()
-        if not account_data:
-            return None
-        usage = account_data.get("app_usage")
-        if not usage or not isinstance(usage, dict):
-            return None
-        total = usage.get("totalUsage") or usage.get("TotalUsage")
-        if total is not None:
-            return _ms_to_minutes(total) if total > 1440 else int(total)
-        apps = usage.get("appActivity") or usage.get("AppActivity") or []
-        if not apps:
-            return None
-        total_mins = 0
-        for app in apps:
-            if isinstance(app, dict):
-                t = app.get("timeUsed") or app.get("TimeUsed") or 0
-                total_mins += _ms_to_minutes(t) if t > 1440 else int(t)
-        return total_mins
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return per-app usage breakdown."""
-        account_data = self._get_account_data()
-        if not account_data:
-            return {}
-        usage = account_data.get("app_usage")
-        if not usage or not isinstance(usage, dict):
-            return {ATTR_USER_ID: self._account_id}
-
-        apps_raw = usage.get("appActivity") or usage.get("AppActivity") or []
-        apps: list[dict[str, Any]] = []
-        top_app = ""
-        top_minutes = 0
-
-        for app in apps_raw:
-            if not isinstance(app, dict):
-                continue
-            name = app.get("appName") or app.get("displayName") or app.get("name") or ""
-            t = app.get("timeUsed") or app.get("TimeUsed") or 0
-            minutes = _ms_to_minutes(t) if t > 1440 else int(t)
-            platform = app.get("platform") or app.get("Platform") or ""
-            apps.append({"name": name, "minutes": minutes, "platform": platform})
-            if minutes > top_minutes:
-                top_minutes = minutes
-                top_app = name
-
-        apps.sort(key=lambda x: x["minutes"], reverse=True)
-
-        return {
-            ATTR_USER_ID: self._account_id,
-            "apps": apps,
-            "top_app": top_app,
-            "app_count": len(apps),
-        }
-
-
-def _ms_to_minutes(milliseconds: int) -> int:
-    """Convert milliseconds to minutes."""
-    return int(milliseconds / 60000)

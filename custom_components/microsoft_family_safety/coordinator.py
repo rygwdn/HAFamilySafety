@@ -27,8 +27,10 @@ from .api_client import FamilySafetyWebAPI, FamilySafetyWebAPIError
 from .auth.addon_client import AddonCookieClient
 from .const import (
     CONF_AUTH_URL,
+    CONF_CONTROLS,
     CONF_REFRESH_TOKEN,
     CONF_UPDATE_INTERVAL,
+    DEFAULT_CONTROLS,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     ERROR_AUTH_FAILED,
@@ -616,12 +618,13 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.debug("Could not fetch web activity: %s", err)
 
-        try:
-            result["app_usage"] = await self.web_api.get_app_usage(
-                account_id, today_start, today_end
-            )
-        except Exception as err:
-            _LOGGER.debug("Could not fetch app usage: %s", err)
+        if self.entry.options.get(CONF_CONTROLS, DEFAULT_CONTROLS):
+            try:
+                result["app_usage"] = await self.web_api.get_app_usage(
+                    account_id, today_start, today_end
+                )
+            except Exception as err:
+                _LOGGER.debug("Could not fetch app usage: %s", err)
 
         return result
 

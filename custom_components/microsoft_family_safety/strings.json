@@ -2,22 +2,18 @@
   "config": {
     "step": {
       "user": {
-        "title": "Microsoft Family Safety Authentication",
-        "description": "To authenticate with Microsoft Family Safety, you need to obtain an authorization code.\n\n**IMPORTANT: Copy this URL and open it in your browser:**\n\n{auth_url}\n\n**Addon status:** {addon_status}\n\nAfter logging in, you will be redirected to a blank page. The URL of that page will contain a 'code' parameter.\n\nClick Next when ready to enter the redirect URL."
-      },
-      "auth": {
-        "title": "Enter Redirect URL",
-        "description": "Paste the complete URL from your browser's address bar after logging in.\n\nThe URL should look like:\nhttps://login.live.com/oauth20_desktop.srf?code=M.C123...\n\nYou can paste the entire URL - the code will be extracted automatically.\n\n**Authentication URL (if needed again):**\n{auth_url}",
+        "title": "Microsoft Family Safety",
+        "description": "**[Sign in with Microsoft →]({auth_url})**\n\nOpen the link above, sign in, then paste the full URL from your browser's address bar below. The URL will look like:\n`https://login.live.com/oauth20_desktop.srf?code=M.C...`",
         "data": {
           "redirect_url": "Redirect URL",
           "update_interval": "Update interval (seconds)",
           "platforms": "Monitored platforms",
-          "auth_url": "Auth addon URL (optional, for Docker standalone)"
+          "auth_url": "Auth addon URL (optional)"
         }
       },
       "reauth_confirm": {
-        "title": "Reauthenticate Microsoft Family Safety",
-        "description": "Your authentication has expired. Please obtain a new authorization code:\n\n1. Open this URL: {auth_url}\n2. Log in with your Microsoft account\n3. Copy the URL from the blank page that appears\n4. Paste it below",
+        "title": "Re-authenticate Microsoft Family Safety",
+        "description": "Your session has expired.\n\n**[Sign in with Microsoft →]({auth_url})**\n\nPaste the redirect URL from your browser below.",
         "data": {
           "redirect_url": "Redirect URL"
         }

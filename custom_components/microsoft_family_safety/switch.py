@@ -20,7 +20,9 @@ from .const import (
     ATTR_PLATFORM,
     ATTR_USER_ID,
     AVAILABLE_PLATFORMS,
+    CONF_APP_SWITCHES,
     CONF_PLATFORMS,
+    DEFAULT_APP_SWITCHES,
     DEFAULT_PLATFORMS,
     DOMAIN,
 )
@@ -39,18 +41,21 @@ async def async_setup_entry(
 
     entities: list[SwitchEntity] = []
 
+    app_switches_enabled = entry.options.get(CONF_APP_SWITCHES, DEFAULT_APP_SWITCHES)
+
     if coordinator.data:
         for account_id, account_data in coordinator.data.get("accounts", {}).items():
             account_name = account_data.get(ATTR_FIRST_NAME, "Unknown")
 
-            # Create app block switches for each application
-            for app in account_data.get("applications", []):
-                entities.append(
-                    FamilySafetyAppBlockSwitch(
-                        coordinator, entry, account_id, account_name,
-                        app["app_id"], app["app_name"],
+            # Create app block switches only when the option is enabled
+            if app_switches_enabled:
+                for app in account_data.get("applications", []):
+                    entities.append(
+                        FamilySafetyAppBlockSwitch(
+                            coordinator, entry, account_id, account_name,
+                            app["app_id"], app["app_name"],
+                        )
                     )
-                )
 
             # Create per-platform lock switches only for selected platforms
             enabled_platforms = entry.options.get(CONF_PLATFORMS, DEFAULT_PLATFORMS)

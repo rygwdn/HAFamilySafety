@@ -17,11 +17,15 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     AVAILABLE_PLATFORMS,
+    CONF_APP_SWITCHES,
+    CONF_APP_USAGE,
     CONF_AUTH_URL,
     CONF_PLATFORMS,
     CONF_REDIRECT_URL,
     CONF_REFRESH_TOKEN,
     CONF_UPDATE_INTERVAL,
+    DEFAULT_APP_SWITCHES,
+    DEFAULT_APP_USAGE,
     DEFAULT_PLATFORMS,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
@@ -224,6 +228,18 @@ class FamilySafetyOptionsFlow(config_entries.OptionsFlow):
                         CONF_AUTH_URL,
                         default=self._config_entry.data.get(CONF_AUTH_URL, ""),
                     ): str,
+                    vol.Optional(
+                        CONF_APP_SWITCHES,
+                        default=self._config_entry.options.get(
+                            CONF_APP_SWITCHES, DEFAULT_APP_SWITCHES
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_APP_USAGE,
+                        default=self._config_entry.options.get(
+                            CONF_APP_USAGE, DEFAULT_APP_USAGE
+                        ),
+                    ): bool,
                 }
             ),
         )

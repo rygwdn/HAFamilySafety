@@ -32,6 +32,8 @@ from .const import (
     ATTR_SURNAME,
     ATTR_TODAY_TIME_USED,
     ATTR_USER_ID,
+    CONF_APP_USAGE,
+    DEFAULT_APP_USAGE,
     DOMAIN,
 )
 from .coordinator import FamilySafetyDataUpdateCoordinator
@@ -73,8 +75,10 @@ def _create_account_sensors(
         FamilySafetyWebFilterSensor(coordinator, entry, account_id),
         FamilySafetyScreenTimePolicySensor(coordinator, entry, account_id),
         FamilySafetyWebActivitySensor(coordinator, entry, account_id),
-        FamilySafetyAppUsageSensor(coordinator, entry, account_id),
     ]
+
+    if entry.options.get(CONF_APP_USAGE, DEFAULT_APP_USAGE):
+        sensors.append(FamilySafetyAppUsageSensor(coordinator, entry, account_id))
 
     if account_data.get("account_balance") is not None:
         sensors.append(FamilySafetyBalanceSensor(coordinator, entry, account_id))
@@ -227,20 +231,27 @@ class FamilySafetyScreenTimeSensor(FamilySafetyAccountSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional attributes."""
+        """Return additional attributes including per-app usage breakdown."""
         account_data = self._get_account_data()
         if not account_data:
             return {}
 
-        # Value is already in minutes from coordinator, convert to seconds for formatting
         total_minutes = account_data.get("today_screentime_usage", 0)
         total_seconds = total_minutes * 60
+
+        apps = [
+            {"name": app["app_name"], "minutes": app.get("usage_minutes", 0)}
+            for app in account_data.get("applications", [])
+            if app.get("usage_minutes", 0) > 0
+        ]
+        apps.sort(key=lambda x: x["minutes"], reverse=True)
 
         return {
             ATTR_USER_ID: account_data.get(ATTR_USER_ID),
             ATTR_AVERAGE_SCREENTIME: account_data.get("average_screentime_usage", 0),
             "state_class": "total",
             "date": datetime.now().date().isoformat(),
+            "apps": apps,
             **_format_duration_attributes(total_seconds),
         }
 

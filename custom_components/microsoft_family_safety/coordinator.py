@@ -2,11 +2,11 @@
 
 Dual authentication strategy:
 - Mobile API (MSAuth1.0 token via pyfamilysafety) — for writes and basic reads
-- Web API (browser cookies from Playwright addon) — for screen time schedule reads
+- Web API (browser cookies from Playwright addon) — optional fallback for schedule reads
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any
 
@@ -46,6 +46,63 @@ def _ms_to_minutes(milliseconds: int | None) -> int:
     if not milliseconds:
         return 0
     return int(milliseconds / 60000)
+
+
+_DAY_KEYS = frozenset({
+    "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
+})
+
+
+def _normalize_mobile_schedule(raw: dict) -> dict:
+    """Normalize mobile API schedule response to the dailyRestrictions format.
+
+    The mobile API GET /v4/devicelimits/schedules may return schedules nested
+    under a 'schedules' key (list or dict) or with day names at the top level.
+    This normalizes all shapes to {"isEnabled": bool, "dailyRestrictions": {day: {...}}}.
+    """
+    if not isinstance(raw, dict):
+        return raw
+
+    # Already in web-API format — return as-is
+    if "dailyRestrictions" in raw or "DailyRestrictions" in raw:
+        return raw
+
+    source: dict | None = None
+    schedules = raw.get("schedules")
+
+    if isinstance(schedules, list) and schedules:
+        source = schedules[0]
+    elif isinstance(schedules, dict):
+        for key in ("Windows", "windows"):
+            if key in schedules:
+                source = schedules[key]
+                break
+        if source is None and schedules:
+            source = next(iter(schedules.values()))
+
+    if source is None and any(k.lower() in _DAY_KEYS for k in raw):
+        source = raw
+
+    if source is None:
+        _LOGGER.debug(
+            "Mobile schedule normalizer: unrecognized format, top-level keys=%s",
+            list(raw.keys()),
+        )
+        return raw
+
+    is_enabled = source.get("enabled", raw.get("enabled", True))
+    if isinstance(is_enabled, str):
+        is_enabled = is_enabled.lower() not in ("false", "0", "disabled")
+
+    daily: dict[str, Any] = {}
+    for key, val in source.items():
+        if key.lower() in _DAY_KEYS and isinstance(val, dict):
+            daily[key.lower()] = val
+
+    return {
+        "isEnabled": bool(is_enabled),
+        "dailyRestrictions": daily,
+    }
 
 
 class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -223,10 +280,19 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_screentime_limit(
         self, child_id: str, day_of_week: int, hours: int, minutes: int
     ) -> None:
-        """Set screen time daily allowance via addon browser."""
-        await self._addon_client.set_screentime_allowance(
-            child_id, day_of_week, hours, minutes
-        )
+        """Set screen time daily allowance — mobile API first, addon fallback."""
+        if self.web_api is None:
+            raise RuntimeError("Web API not initialized")
+        try:
+            await self.web_api.set_screentime_daily_allowance(child_id, day_of_week, hours, minutes)
+            _LOGGER.debug(
+                "Screen time limit set via mobile API for day %d", day_of_week
+            )
+        except Exception as err:
+            _LOGGER.debug("Mobile API write failed (%s), trying addon", err)
+            await self._addon_client.set_screentime_allowance(
+                child_id, day_of_week, hours, minutes
+            )
         await self.async_request_refresh()
 
     async def async_set_screentime_intervals(
@@ -238,16 +304,24 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         end_hour: int,
         end_minute: int,
     ) -> None:
-        """Set screen time allowed intervals via addon browser."""
-        # Build 48-slot boolean array from start/end range
+        """Set screen time allowed intervals — mobile API first, addon fallback."""
         intervals = [False] * 48
         start_slot = start_hour * 2 + (1 if start_minute >= 30 else 0)
         end_slot = end_hour * 2 + (1 if end_minute >= 30 else 0)
         for i in range(start_slot, min(end_slot, 48)):
             intervals[i] = True
-        await self._addon_client.set_screentime_intervals(
-            child_id, day_of_week, intervals
-        )
+        if self.web_api is None:
+            raise RuntimeError("Web API not initialized")
+        try:
+            await self.web_api.set_screentime_intervals(child_id, day_of_week, intervals)
+            _LOGGER.debug(
+                "Screen time intervals set via mobile API for day %d", day_of_week
+            )
+        except Exception as err:
+            _LOGGER.debug("Mobile API intervals write failed (%s), trying addon", err)
+            await self._addon_client.set_screentime_intervals(
+                child_id, day_of_week, intervals
+            )
         await self.async_request_refresh()
 
     async def async_set_app_time_limit(
@@ -316,6 +390,13 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.web_api.set_acquisition_policy(child_id, require_approval)
         await self.async_request_refresh()
 
+    async def async_grant_time_override(self, account_id: str, minutes: int) -> None:
+        """Grant a temporary screen time extension (extra minutes) via mobile API."""
+        if self.web_api is None:
+            raise RuntimeError("Web API not initialized")
+        await self.web_api.create_device_override(account_id, minutes)
+        await self.async_request_refresh()
+
     # ──────────────────────────────────────────────────────────────────────
     # Account lock/unlock (screen time based)
     # ──────────────────────────────────────────────────────────────────────
@@ -344,47 +425,78 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return False
         return True
 
+    async def _write_day_screentime(
+        self,
+        account_id: str,
+        day_index: int,
+        hours: int,
+        minutes: int,
+        intervals: list[bool],
+    ) -> bool:
+        """Write one day's screen time — mobile API first, addon fallback."""
+        try:
+            if self.web_api:
+                await self.web_api.set_screentime_daily_allowance(
+                    account_id, day_index, hours, minutes
+                )
+                await self.web_api.set_screentime_intervals(
+                    account_id, day_index, intervals
+                )
+                return True
+        except Exception as err:
+            _LOGGER.debug("Mobile API write for day %d failed (%s), trying addon", day_index, err)
+        try:
+            await self._addon_client.set_screentime_allowance(
+                account_id, day_index, hours, minutes
+            )
+            await self._addon_client.set_screentime_intervals(
+                account_id, day_index, intervals
+            )
+            return True
+        except Exception as err:
+            _LOGGER.warning(
+                "Could not write day %d for account %s: %s", day_index, account_id, err
+            )
+            return False
+
     async def async_lock_account(self, account_id: str) -> None:
         """Lock an account by setting all 7-day screen time quotas to 0."""
-        # Save current screentime policy before zeroing
-        current_policy = await self._addon_client.fetch_screentime(account_id)
+        # Save current screentime policy before zeroing — try mobile API first
+        current_policy: dict | None = None
+        if self.web_api:
+            try:
+                raw = await self.web_api.get_screentime_schedule(account_id)
+                if raw is not None:
+                    current_policy = _normalize_mobile_schedule(raw)
+            except Exception as err:
+                _LOGGER.debug("Mobile API schedule read failed when locking: %s", err)
+        if current_policy is None:
+            current_policy = await self._addon_client.fetch_screentime(account_id)
+
         if current_policy:
             daily = current_policy.get("dailyRestrictions") or current_policy.get("DailyRestrictions") or {}
-            has_nonzero = False
-            for day_key in self.DAYS_OF_WEEK:
-                day_data = daily.get(day_key) or daily.get(day_key.capitalize()) or {}
-                allowance = day_data.get("allowance") or day_data.get("Allowance") or "00:00:00"
-                if allowance != "00:00:00":
-                    has_nonzero = True
-                    break
+            has_nonzero = any(
+                (
+                    (daily.get(k) or daily.get(k.capitalize()) or {}).get("allowance")
+                    or (daily.get(k) or daily.get(k.capitalize()) or {}).get("Allowance")
+                    or "00:00:00"
+                ) != "00:00:00"
+                for k in self.DAYS_OF_WEEK
+            )
             if has_nonzero:
                 self._saved_screentime[account_id] = current_policy
                 await self._async_save_screentime()
                 _LOGGER.info(
-                    "Saved screentime policy for account %s before locking",
-                    account_id,
+                    "Saved screentime policy for account %s before locking", account_id
                 )
 
-        # Set all 7 days to 0 minutes via addon
-        days_locked = 0
-        for day_index in range(7):
-            try:
-                await self._addon_client.set_screentime_allowance(
-                    account_id, day_index, hours=0, minutes=0
-                )
-                await self._addon_client.set_screentime_intervals(
-                    account_id, day_index, [False] * 48
-                )
-                days_locked += 1
-            except Exception as err:
-                _LOGGER.warning(
-                    "Could not lock day %d for account %s: %s",
-                    day_index, account_id, err,
-                )
-
-        _LOGGER.info(
-            "Account %s locked (%d/7 days set to 0)", account_id, days_locked
+        days_locked = sum(
+            1
+            for day_index in range(7)
+            if await self._write_day_screentime(account_id, day_index, 0, 0, [False] * 48)
         )
+
+        _LOGGER.info("Account %s locked (%d/7 days set to 0)", account_id, days_locked)
         await self.async_request_refresh()
 
     @staticmethod
@@ -395,33 +507,8 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             intervals[i] = True
         return intervals
 
-    async def _restore_day(
-        self, account_id: str, day_index: int, hours: int, minutes: int,
-        intervals: list[bool] | None,
-    ) -> bool:
-        """Restore a single day's screentime via addon. Returns True on success."""
-        try:
-            await self._addon_client.set_screentime_allowance(
-                account_id, day_index, hours, minutes
-            )
-            effective_intervals = (
-                intervals if intervals and len(intervals) == 48
-                else self._default_intervals()
-            )
-            await self._addon_client.set_screentime_intervals(
-                account_id, day_index, effective_intervals
-            )
-            return True
-        except Exception as err:
-            _LOGGER.warning(
-                "Failed to restore day %d for account %s: %s",
-                day_index, account_id, err,
-            )
-            return False
-
     async def async_unlock_account(self, account_id: str) -> None:
         """Unlock an account by restoring saved screen time quotas."""
-
         saved = self._saved_screentime.get(account_id)
         days_restored = 0
 
@@ -437,13 +524,13 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except (ValueError, IndexError):
                     hours, minutes = 2, 0
 
-                # Use timeline (48 booleans) if available, else convert allowedIntervals
                 timeline = day_data.get("timeline")
-                if isinstance(timeline, list) and len(timeline) == 48:
-                    intervals = timeline
-                else:
-                    intervals = None
-                if await self._restore_day(account_id, day_index, hours, minutes, intervals):
+                intervals = (
+                    timeline
+                    if isinstance(timeline, list) and len(timeline) == 48
+                    else self._default_intervals()
+                )
+                if await self._write_day_screentime(account_id, day_index, hours, minutes, intervals):
                     days_restored += 1
 
             self._saved_screentime.pop(account_id, None)
@@ -458,9 +545,10 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 account_id,
             )
             for day_index in range(7):
-                if await self._restore_day(account_id, day_index, 2, 0, None):
+                if await self._write_day_screentime(
+                    account_id, day_index, 2, 0, self._default_intervals()
+                ):
                     days_restored += 1
-
             _LOGGER.info(
                 "Account %s unlocked (%d/7 days restored with defaults)",
                 account_id, days_restored,
@@ -473,10 +561,12 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ──────────────────────────────────────────────────────────────────────
 
     async def _fetch_web_api_data(self, account_id: str) -> dict[str, Any]:
-        """Fetch additional data from the web API for an account."""
+        """Fetch additional data from the mobile/web API for an account."""
         result: dict[str, Any] = {
             "web_browsing": None,
             "screentime_policy": None,
+            "web_activity": None,
+            "app_usage": None,
         }
         if self.web_api is None:
             return result
@@ -487,16 +577,51 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.debug("Could not fetch web browsing settings: %s", err)
 
+        # Try mobile API first — no browser required
         try:
-            # Use addon's browser-based fetch (avoids 401 from direct cookie replay)
-            screentime = await self._addon_client.fetch_screentime(account_id)
-            if screentime is None:
-                # Fallback to direct web API call
-                screentime = await self.web_api.get_screentime_policy(account_id)
-            _LOGGER.debug("Screen time policy response for %s: %s", account_id, screentime)
-            result["screentime_policy"] = screentime
+            raw = await self.web_api.get_screentime_schedule(account_id)
+            if raw is not None:
+                result["screentime_policy"] = _normalize_mobile_schedule(raw)
+                _LOGGER.debug(
+                    "Screen time schedule fetched via mobile API for %s", account_id
+                )
         except Exception as err:
-            _LOGGER.debug("Could not fetch screen time policy: %s", err)
+            _LOGGER.debug("Mobile API schedule fetch failed: %s", err)
+
+        # Fall back to browser addon if mobile API returned nothing
+        if result["screentime_policy"] is None:
+            try:
+                screentime = await self._addon_client.fetch_screentime(account_id)
+                if screentime is None:
+                    screentime = await self.web_api.get_screentime_policy(account_id)
+                if screentime is not None:
+                    result["screentime_policy"] = screentime
+                    _LOGGER.debug(
+                        "Screen time schedule fetched via addon for %s", account_id
+                    )
+            except Exception as err:
+                _LOGGER.debug("Could not fetch screen time policy via addon: %s", err)
+
+        # Activity reports (mobile API — no browser needed)
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z"
+        )
+        today_end = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        try:
+            result["web_activity"] = await self.web_api.get_web_activity(
+                account_id, today_start, today_end
+            )
+        except Exception as err:
+            _LOGGER.debug("Could not fetch web activity: %s", err)
+
+        try:
+            result["app_usage"] = await self.web_api.get_app_usage(
+                account_id, today_start, today_end
+            )
+        except Exception as err:
+            _LOGGER.debug("Could not fetch app usage: %s", err)
 
         return result
 
@@ -588,6 +713,8 @@ class FamilySafetyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 web_data = await self._fetch_web_api_data(account_id)
                 accounts_data[account_id]["web_browsing"] = web_data.get("web_browsing")
                 accounts_data[account_id]["screentime_policy"] = web_data.get("screentime_policy")
+                accounts_data[account_id]["web_activity"] = web_data.get("web_activity")
+                accounts_data[account_id]["app_usage"] = web_data.get("app_usage")
 
             # Collect pending requests
             pending_requests = []

@@ -419,3 +419,24 @@ unlock_account:
       required: true
       selector:
         text:
+
+grant_time_override:
+  name: Grant Extra Time
+  description: Grant a temporary screen time extension for a child account. The extra time expires after the specified number of minutes.
+  fields:
+    account_id:
+      name: Account ID
+      description: The user ID of the child account.
+      required: true
+      selector:
+        text:
+    minutes:
+      name: Minutes
+      description: Extra time to grant in minutes (5-120).
+      required: true
+      selector:
+        number:
+          min: 5
+          max: 120
+          step: 5
+          unit_of_measurement: minutes

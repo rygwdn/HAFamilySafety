@@ -90,6 +90,7 @@ SERVICE_SET_AGE_RATING: Final = "set_age_rating"
 SERVICE_SET_ACQUISITION_POLICY: Final = "set_acquisition_policy"
 SERVICE_LOCK_ACCOUNT: Final = "lock_account"
 SERVICE_UNLOCK_ACCOUNT: Final = "unlock_account"
+SERVICE_GRANT_TIME_OVERRIDE: Final = "grant_time_override"
 
 ALL_SERVICES: Final = [
     SERVICE_BLOCK_APP,
@@ -109,6 +110,7 @@ ALL_SERVICES: Final = [
     SERVICE_SET_ACQUISITION_POLICY,
     SERVICE_LOCK_ACCOUNT,
     SERVICE_UNLOCK_ACCOUNT,
+    SERVICE_GRANT_TIME_OVERRIDE,
 ]
 
 # Platforms

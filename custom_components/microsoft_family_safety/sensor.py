@@ -32,8 +32,8 @@ from .const import (
     ATTR_SURNAME,
     ATTR_TODAY_TIME_USED,
     ATTR_USER_ID,
-    CONF_PER_APP,
-    DEFAULT_PER_APP,
+    CONF_CONTROLS,
+    DEFAULT_CONTROLS,
     DOMAIN,
 )
 from .coordinator import FamilySafetyDataUpdateCoordinator
@@ -244,7 +244,7 @@ class FamilySafetyScreenTimeSensor(FamilySafetyAccountSensor):
             **_format_duration_attributes(total_seconds),
         }
 
-        if self._entry.options.get(CONF_PER_APP, DEFAULT_PER_APP):
+        if self._entry.options.get(CONF_CONTROLS, DEFAULT_CONTROLS):
             apps = [
                 {"name": app["app_name"], "minutes": app.get("usage_minutes", 0)}
                 for app in account_data.get("applications", [])

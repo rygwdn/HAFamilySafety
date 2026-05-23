@@ -22,8 +22,8 @@ AVAILABLE_PLATFORMS: Final = ["Windows", "Xbox", "Mobile"]
 DEFAULT_PLATFORMS: Final = ["Windows"]
 
 # Feature toggles
-CONF_PER_APP: Final = "per_app_features"
-DEFAULT_PER_APP: Final = True
+CONF_CONTROLS: Final = "enable_controls"
+DEFAULT_CONTROLS: Final = True
 
 # Authentication URLs
 MS_LOGIN_URL: Final = "https://login.live.com/oauth20_authorize.srf"

@@ -13,7 +13,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_FIRST_NAME, ATTR_SURNAME, DOMAIN
+from .const import ATTR_FIRST_NAME, ATTR_SURNAME, CONF_CONTROLS, DEFAULT_CONTROLS, DOMAIN
 from .coordinator import FamilySafetyDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ async def async_setup_entry(
 
     entities: list[NumberEntity] = []
 
-    if coordinator.data:
+    if coordinator.data and entry.options.get(CONF_CONTROLS, DEFAULT_CONTROLS):
         for account_id, account_data in coordinator.data.get("accounts", {}).items():
             for day_index, day_key, day_label in DAYS:
                 entities.append(
